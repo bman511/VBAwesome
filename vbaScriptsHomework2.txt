@@ -1,0 +1,116 @@
+Sub loopThroughSheets() 'RUN THIS SCRIPT TO ANALYZE DATA!!!
+'loop through all sheets and perform calculations and call other scripts
+  Dim ws As Worksheet 'the current worksheet
+  Dim startSheet As Worksheet
+  Dim allCells As Range
+  Dim headerArray
+  headerArray = Array("Ticker", "Yearly Change", "Percent Change", "Total Stock Volume")
+  Dim metricHeaders
+  metricHeaders = Array("Metric", "Ticker", "Result")
+  Dim metricRows
+  metricRows = Array("Greatest Increase", "Greatest Decrease", "Greatest Volume")
+  Dim headerRange As Integer
+  headerRange = UBound(headerArray, 1)
+  Set startSheet = ActiveSheet
+
+  For Each ws In ThisWorkbook.Worksheets 'loop through worksheets in this workbook
+    ws.Activate 'make sheet the active sheet
+    Range("I1:L1").Value = headerArray 'Column names for aggregate values
+    Range("N1:P1").Value = metricHeaders 'Column names for max/min metrics
+    Range("N2:N4").Value = Application.Transpose(metricRows)
+    Call analyzeTrades 'call the sub that will perform the initial calculations
+    Call summaryMetricsFxn(Range("K2"), Range("P2"), "max") 'call to calculate max change
+    Call summaryMetricsFxn(Range("L2"), Range("P4"), "max") 'call to calculate max volume
+    Call summaryMetricsFxn(Range("K2"), Range("P3"), "min") 'call to calculate min change
+    ws.Columns("I:P").AutoFit 'Ensure column widths are sized appropriately after all data is added
+  Next ws
+  startSheet.Activate 'make original sheet active again
+  
+End Sub
+
+Sub analyzeTrades()
+'Aggregate lines of daily stock trade activity into summaries for each ticker symbol
+  Dim currentTicker As String
+  Dim currentOpening As Double
+  Dim sumVolume As Double
+  Dim currentClosing As Double
+  Dim percentChange As Double
+  Dim yearChange As Double
+  Dim lastRow As Double
+  Dim recordRow As Integer
+  recordRow = 2
+  'Find last row, assign to variable
+  lastRow = Cells(Rows.Count, 1).End(xlUp).Row
+  'For very first line, assign opening and closing before loop
+  currentOpening = Cells(2, "C").Value
+  'Loop through tickers
+  For i = 2 To lastRow 'start on row 2, below headers
+    currentTicker = Cells(i, 1).Value 'Assign current ticker symbol
+    If currentTicker = Cells(i + 1, 1).Value Then 'Is this Ticker equal to next ticker?
+      sumVolume = sumVolume + Cells(i, "G").Value 'If yes, add trade volume to total
+    Else 'If this is the last ticker of its kind
+      Cells(recordRow, "I").Value = currentTicker 'Record current ticker
+      currentClosing = Cells(i, "F").Value 'Assign closing value
+      yearChange = currentClosing - currentOpening
+      Cells(recordRow, "J").Value = yearChange 'Record change from open to close
+      Call formatChange(Cells(recordRow, "J")) 'Call sub to format the yearly change cell
+      If currentOpening <> 0 Then
+        percentChange = (currentClosing - currentOpening) / currentOpening 'Assign percent change
+      Else
+        percentChange = 0
+      End If
+      Cells(recordRow, "K").Value = percentChange 'Record percent change
+      Cells(recordRow, "K").NumberFormat = "0.00%"
+      sumVolume = sumVolume + Cells(i, "G").Value 'Add final trade volume to total
+      Cells(recordRow, "L").Value = sumVolume 'Record the total trade volume
+      sumVolume = 0 'Reset trade volume to zero
+      recordRow = recordRow + 1 'Increment the row on which to record the aggregation
+      currentOpening = Cells(i + 1, "C").Value 'Assign next ticker's opening value
+    End If
+  Next i
+End Sub
+
+'format increase or decrease as green or red, respectively
+Sub formatChange(currCell As Range)
+  If (currCell.Value < 0) Then
+    currCell.Interior.ColorIndex = 3
+  Else
+    currCell.Interior.ColorIndex = 4
+  End If
+End Sub
+
+Sub summaryMetricsFxn(topCell As Range, pasteCell As Range, maxOrMin As String)
+'Record greatest increase, decrease, and trade volume and associated Tickers
+'topCell is top cell of range, pasteCell is where to paste result, maxOrMin is string to indicate calculation (Max or Min of Range)
+  Dim matchNumber As Double
+  Dim lastRow As Long
+  Dim aggRange As Range
+  Dim currentCol As Integer
+  Dim currCell As Range
+  Dim pasteTicker As Range
+  
+  'Find last row of aggregated data
+  lastRow = Cells(Rows.Count, "I").End(xlUp).Row
+  currentCol = topCell.Column
+  Set pasteTicker = pasteCell.Offset(, -1) 'cell to paste ticker symbol
+  Set aggRange = Range(topCell, Cells(lastRow, currentCol)) 'set variable to entire range of interest
+  
+  If maxOrMin = "max" Then
+    matchNumber = Application.Max(aggRange) 'Find max of range
+  Else
+    matchNumber = Application.Min(aggRange) 'Find min of range
+  End If
+  
+  For Each currCell In aggRange 'loop through range of interest
+    If currCell.Value = matchNumber Then 'If the current cell's value is a match
+      If Len(pasteCell) = 0 Then 'Check if the destination cell has a value in it already (in case there are multiple max or min stocks)
+        pasteCell.Value = currCell.Value
+        pasteTicker.Value = Cells(currCell.Row, 9).Value
+      Else
+        pasteCell.Value = pasteCell.Value & ", " & currCell.Value 'if there are multiple matches, append the new one
+        pasteTicker.Value = pasteTicker.Value & ", " & Cells(currCell.Row, 9).Value
+      End If
+    End If
+  Next currCell
+  Range("P2:P3").NumberFormat = "0.00%" 'format change cells to percent
+   
